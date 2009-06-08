@@ -29,6 +29,11 @@
 #include <fcntl.h>
 #include <time.h>
 
+#ifdef ANDROID_CHANGES
+#include <android/log.h>
+#include <cutils/sockets.h>
+#endif
+
 #include "mtpd.h"
 
 int the_socket = -1;
@@ -95,11 +100,67 @@ static void stop_pppd()
     }
 }
 
+#ifdef ANDROID_CHANGES
+
+static int get_control_and_arguments(int *argc, char ***argv)
+{
+    static char *args[256];
+    int control;
+    int i;
+
+    log_print(DEBUG, "Waiting for control socket");
+    i = android_get_control_socket("mtpd");
+    if (i == -1 || listen(i, 1) == -1 || (control = accept(i, NULL, 0)) == -1) {
+        log_print(FATAL, "Cannot get control socket");
+        exit(SYSTEM_ERROR);
+    }
+    close(i);
+    fcntl(control, F_SETFD, FD_CLOEXEC);
+
+    args[0] = (*argv)[0];
+    for (i = 1; i < 256; ++i) {
+        unsigned char length;
+        if (recv(control, &length, 1, 0) != 1) {
+            log_print(FATAL, "Cannot get argument length");
+            exit(SYSTEM_ERROR);
+        }
+        if (length == 0xFF) {
+            break;
+        } else {
+            int offset = 0;
+            args[i] = malloc(length + 1);
+            while (offset < length) {
+                int n = recv(control, &args[i][offset], length - offset, 0);
+                if (n > 0) {
+                    offset += n;
+                } else {
+                    log_print(FATAL, "Cannot get argument value");
+                    exit(SYSTEM_ERROR);
+                }
+            }
+            args[i][length] = 0;
+        }
+    }
+    log_print(DEBUG, "Received %d arguments", i - 1);
+
+    *argc = i;
+    *argv = args;
+    return control;
+}
+
+#endif
+
 int main(int argc, char **argv)
 {
     struct pollfd pollfds[2];
     int timeout;
-    int error = 0;
+    int status;
+#ifdef ANDROID_CHANGES
+    unsigned char code;
+    int control = get_control_and_arguments(&argc, &argv);
+    code = argc - 1;
+    send(control, &code, 1, 0);
+#endif
 
     srandom(time(NULL));
 
@@ -134,39 +195,54 @@ int main(int argc, char **argv)
     }
 
     if (timeout < 0) {
-        error = -timeout;
+        status = -timeout;
     } else {
         int signal;
         read(signals[0], &signal, sizeof(int));
         log_print(INFO, "Received signal %d", signal);
-        if (signal == SIGCHLD && waitpid(pppd_pid, &error, WNOHANG) == pppd_pid
-            && WIFEXITED(error)) {
-            error = WEXITSTATUS(error);
-            log_print(INFO, "Pppd is terminated (status = %d)", error);
-            error += PPPD_EXITED;
+        if (signal == SIGCHLD && waitpid(pppd_pid, &status, WNOHANG) == pppd_pid
+            && WIFEXITED(status)) {
+            status = WEXITSTATUS(status);
+            log_print(INFO, "Pppd is terminated (status = %d)", status);
+            status += PPPD_EXITED;
             pppd_pid = 0;
         } else {
-            error = USER_REQUESTED;
+            status = USER_REQUESTED;
         }
     }
 
     stop_pppd();
     the_protocol->shutdown();
 
-    log_print(INFO, "Mtpd is terminated (status = %d)", error);
-    return error;
+#ifdef ANDROID_CHANGES
+    code = status;
+    send(control, &code, 1, 0);
+#endif
+    log_print(INFO, "Mtpd is terminated (status = %d)", status);
+    return status;
 }
 
 void log_print(int level, char *format, ...)
 {
     if (level >= 0 && level <= LOG_MAX) {
-        char *levels = "DIWEF";
+#ifdef ANDROID_CHANGES
+        static int levels[5] = {
+            ANDROID_LOG_DEBUG, ANDROID_LOG_INFO, ANDROID_LOG_WARN,
+            ANDROID_LOG_ERROR, ANDROID_LOG_FATAL
+        };
+        va_list ap;
+        va_start(ap, format);
+        __android_log_vprint(levels[level], "mtpd", format, ap);
+        va_end(ap);
+#else
+        static char *levels = "DIWEF";
         va_list ap;
         fprintf(stderr, "%c: ", levels[level]);
         va_start(ap, format);
         vfprintf(stderr, format, ap);
         va_end(ap);
         fputc('\n', stderr);
+#endif
     }
 }
 
@@ -226,14 +302,16 @@ void start_pppd(int pppox)
     }
 
     if (!pppd_pid) {
-        char number[16];
-        char *args[1024] = {"", "nodetach", "pppox", number};
-        int i;
+        char *args[pppd_argc + 5];
+        char number[12];
 
         sprintf(number, "%d", pppox);
-        for (i = 0; i < pppd_argc; ++i) {
-            args[4 + i] = pppd_argv[i];
-        }
+        args[0] = "pppd";
+        args[1] = "nodetach";
+        args[2] = "pppox";
+        args[3] = number;
+        memcpy(&args[4], pppd_argv, sizeof(char *) * pppd_argc);
+        args[4 + pppd_argc] = NULL;
 
         execvp("pppd", args);
         log_print(FATAL, "Exec() %s", strerror(errno));

@@ -39,7 +39,8 @@
 int the_socket = -1;
 
 extern struct protocol l2tp;
-static struct protocol *protocols[] = {&l2tp, NULL};
+extern struct protocol pptp;
+static struct protocol *protocols[] = {&l2tp, &pptp, NULL};
 static struct protocol *the_protocol;
 
 static int pppd_argc;
@@ -108,9 +109,11 @@ static int get_control_and_arguments(int *argc, char ***argv)
     int control;
     int i;
 
+    if ((i = android_get_control_socket("mtpd")) == -1) {
+        return -1;
+    }
     log_print(DEBUG, "Waiting for control socket");
-    i = android_get_control_socket("mtpd");
-    if (i == -1 || listen(i, 1) == -1 || (control = accept(i, NULL, 0)) == -1) {
+    if (listen(i, 1) == -1 || (control = accept(i, NULL, 0)) == -1) {
         log_print(FATAL, "Cannot get control socket");
         exit(SYSTEM_ERROR);
     }

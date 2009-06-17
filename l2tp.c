@@ -27,6 +27,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <linux/if_pppolac.h>
+#include <openssl/md5.h>
 
 #include "mtpd.h"
 
@@ -67,10 +68,13 @@ static char *messages[] = {
 #define HOST_NAME               htons(7)
 #define ASSIGNED_TUNNEL         htons(9)
 #define WINDOW_SIZE             htons(10)
+#define CHALLENGE               htons(11)
+#define CHALLENGE_RESPONSE      htons(13)
 #define ASSIGNED_SESSION        htons(14)
 #define CALL_SERIAL_NUMBER      htons(15)
 #define FRAMING_TYPE            htons(19)
 #define CONNECT_SPEED           htons(24)
+#define RANDOM_VECTOR           htons(36)
 
 #define MESSAGE_FLAG            0xC802
 #define MESSAGE_MASK            0xCB0F
@@ -81,6 +85,7 @@ static char *messages[] = {
 #define ACK_SIZE                12
 #define MESSAGE_HEADER_SIZE     20
 #define ATTRIBUTE_HEADER_SIZE   6
+#define MAX_ATTRIBUTE_SIZE      1024
 
 static uint16_t local_tunnel;
 static uint16_t local_session;
@@ -91,6 +96,12 @@ static uint16_t remote_sequence;
 
 static uint16_t state;
 static int acknowledged;
+
+#define CHALLENGE_SIZE  32
+
+static char *secret;
+static int secret_length;
+static uint8_t challenge[CHALLENGE_SIZE];
 
 /* According to RFC 2661 page 46, an exponential backoff strategy is required
  * for retransmission. However, it might waste too much time waiting for IPsec
@@ -219,6 +230,9 @@ static int recv_packet(uint16_t *session)
 static int get_attribute_raw(uint16_t type, void *value, int size)
 {
     int offset = MESSAGE_HEADER_SIZE;
+    uint8_t *vector = NULL;
+    int vector_length = 0;
+
     while (incoming.length >= offset + ATTRIBUTE_HEADER_SIZE) {
         struct attribute *p = (struct attribute *)&incoming.buffer[offset];
         uint16_t flag = ntohs(p->flag);
@@ -229,13 +243,59 @@ static int get_attribute_raw(uint16_t type, void *value, int size)
         if (length < 0 || offset > incoming.length) {
             break;
         }
+        if (p->vendor) {
+            continue;
+        }
+        if (p->type != type) {
+            if (p->type == RANDOM_VECTOR && !ATTRIBUTE_HIDDEN(flag)) {
+                vector = p->value;
+                vector_length = length;
+            }
+            continue;
+        }
 
-        /* Currently we do not support hidden attributes. */
-        if (!ATTRIBUTE_HIDDEN(flag) && !p->vendor && p->type == type) {
+        if (!ATTRIBUTE_HIDDEN(flag)) {
             if (size > length) {
                 size = length;
             }
             memcpy(value, p->value, size);
+            return size;
+        }
+
+        if (!secret || !vector) {
+            return 0;
+        } else {
+            uint8_t buffer[MAX_ATTRIBUTE_SIZE];
+            uint8_t hash[MD5_DIGEST_LENGTH];
+            MD5_CTX ctx;
+            int i = 0;
+
+            MD5_Init(&ctx);
+            MD5_Update(&ctx, &type, sizeof(uint16_t));
+            MD5_Update(&ctx, secret, secret_length);
+            MD5_Update(&ctx, vector, vector_length);
+            MD5_Final(hash, &ctx);
+
+            while (i + MD5_DIGEST_LENGTH <= length) {
+                int j;
+                for (j = 0; j < MD5_DIGEST_LENGTH; ++j) {
+                    buffer[i + j] = p->value[i + j] ^ hash[j];
+                }
+                MD5_Init(&ctx);
+                MD5_Update(&ctx, secret, secret_length);
+                MD5_Update(&ctx, &buffer[i], MD5_DIGEST_LENGTH);
+                MD5_Final(hash, &ctx);
+                i += MD5_DIGEST_LENGTH;
+            }
+
+            length = buffer[0] << 8 | buffer[1];
+            if (i == 0 || length > i - 2) {
+                return 0;
+            }
+            if (size > length) {
+                size = length;
+            }
+            memcpy(value, &buffer[2], size);
             return size;
         }
     }
@@ -266,6 +326,17 @@ static int l2tp_connect(int argc, char **argv)
     add_attribute_u32(FRAMING_CAPABILITIES, htonl(3));
     add_attribute_u16(ASSIGNED_TUNNEL, local_tunnel);
     add_attribute_u16(WINDOW_SIZE, htons(1));
+
+    if (argc >= 3) {
+        int i;
+        for (i = 0; i < CHALLENGE_SIZE; ++i) {
+            challenge[i] = random();
+        }
+        add_attribute_raw(CHALLENGE, challenge, CHALLENGE_SIZE);
+        secret = argv[2];
+        secret_length = strlen(argv[2]);
+    }
+
     send_packet();
     return TIMEOUT_INTERVAL;
 }
@@ -295,11 +366,49 @@ static int create_pppox()
     return pppox;
 }
 
+static uint8_t *compute_response(uint8_t type, void *challenge, int size)
+{
+    static uint8_t response[MD5_DIGEST_LENGTH];
+    MD5_CTX ctx;
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, &type, sizeof(uint8_t));
+    MD5_Update(&ctx, secret, secret_length);
+    MD5_Update(&ctx, challenge, size);
+    MD5_Final(response, &ctx);
+    return response;
+}
+
+static int verify_challenge()
+{
+    if (secret) {
+        uint8_t response[MD5_DIGEST_LENGTH];
+        if (get_attribute_raw(CHALLENGE_RESPONSE, response, MD5_DIGEST_LENGTH)
+            != MD5_DIGEST_LENGTH) {
+            return 0;
+        }
+        return !memcmp(compute_response(SCCRP, challenge, CHALLENGE_SIZE),
+                       response, MD5_DIGEST_LENGTH);
+    }
+    return 1;
+}
+
+static void answer_challenge()
+{
+    if (secret) {
+        uint8_t challenge[MAX_ATTRIBUTE_SIZE];
+        int size = get_attribute_raw(CHALLENGE, challenge, MAX_ATTRIBUTE_SIZE);
+        if (size > 0) {
+            uint8_t *response = compute_response(SCCCN, challenge, size);
+            add_attribute_raw(CHALLENGE_RESPONSE, response, MD5_DIGEST_LENGTH);
+        }
+    }
+}
+
 static int l2tp_process()
 {
     uint16_t sequence = local_sequence;
-    uint16_t tunnel;
-    uint16_t session;
+    uint16_t tunnel = 0;
+    uint16_t session = 0;
 
     if (!recv_packet(&session)) {
         return acknowledged ? 0 : TIMEOUT_INTERVAL;
@@ -310,15 +419,18 @@ static int l2tp_process()
     switch(incoming.message) {
         case SCCRP:
             if (state == SCCRQ) {
-                if (get_attribute_u16(ASSIGNED_TUNNEL, &tunnel) && tunnel) {
+                if (get_attribute_u16(ASSIGNED_TUNNEL, &tunnel) && tunnel
+                    && verify_challenge()) {
                     remote_tunnel = tunnel;
                     log_print(DEBUG, "Received SCCRP (remote_tunnel = %d) -> "
                               "Sending SCCCN", remote_tunnel);
                     state = SCCCN;
+                    answer_challenge();
                     set_message(0, SCCCN);
                     break;
                 }
-                log_print(DEBUG, "Received SCCRP without assigned tunnel");
+                log_print(DEBUG, "Received SCCRP without %s", tunnel ?
+                          "valid challenge response" : "assigned tunnel");
                 log_print(ERROR, "Protocol error");
                 return -PROTOCOL_ERROR;
             }
@@ -445,7 +557,7 @@ static void l2tp_shutdown()
 
 struct protocol l2tp = {
     .name = "l2tp",
-    .usage = "<server> <port>",
+    .usage = "<server> <port> [secret]",
     .connect = l2tp_connect,
     .process = l2tp_process,
     .timeout = l2tp_timeout,

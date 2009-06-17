@@ -20,8 +20,8 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := mtpd.c l2tp.c pptp.c
-LOCAL_SHARED_LIBRARIES := libcutils
-LOCAL_CFLAGS := -DANDROID_CHANGES
+LOCAL_SHARED_LIBRARIES := libcutils libcrypto
+LOCAL_CFLAGS := -DANDROID_CHANGES -Iexternal/openssl/include
 
 LOCAL_MODULE := mtpd
 

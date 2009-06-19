@@ -97,6 +97,7 @@ static uint16_t remote_sequence;
 static uint16_t state;
 static int acknowledged;
 
+#define RANDOM_DEVICE   "/dev/urandom"
 #define CHALLENGE_SIZE  32
 
 static char *secret;
@@ -328,10 +329,13 @@ static int l2tp_connect(int argc, char **argv)
     add_attribute_u16(WINDOW_SIZE, htons(1));
 
     if (argc >= 3) {
-        int i;
-        for (i = 0; i < CHALLENGE_SIZE; ++i) {
-            challenge[i] = random();
+        FILE *fp = fopen(RANDOM_DEVICE, "r");
+        if (!fp || fread(challenge, 1, CHALLENGE_SIZE, fp) != CHALLENGE_SIZE) {
+            log_print(FATAL, "Cannot read %s", RANDOM_DEVICE);
+            exit(SYSTEM_ERROR);
         }
+        fclose(fp);
+
         add_attribute_raw(CHALLENGE, challenge, CHALLENGE_SIZE);
         secret = argv[2];
         secret_length = strlen(argv[2]);
@@ -432,7 +436,7 @@ static int l2tp_process()
                 log_print(DEBUG, "Received SCCRP without %s", tunnel ?
                           "valid challenge response" : "assigned tunnel");
                 log_print(ERROR, "Protocol error");
-                return -PROTOCOL_ERROR;
+                return tunnel ? -CHALLENGE_FAILED : -PROTOCOL_ERROR;
             }
             break;
 

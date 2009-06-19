@@ -172,6 +172,8 @@ int main(int argc, char **argv)
         exit(SYSTEM_ERROR);
     }
 
+    timeout = initialize(argc, argv);
+
     signal(SIGHUP, interrupt);
     signal(SIGINT, interrupt);
     signal(SIGTERM, interrupt);
@@ -179,7 +181,6 @@ int main(int argc, char **argv)
     signal(SIGPIPE, SIG_IGN);
     atexit(stop_pppd);
 
-    timeout = initialize(argc, argv);
     pollfds[0].fd = signals[0];
     pollfds[0].events = POLLIN;
     pollfds[1].fd = the_socket;
@@ -271,9 +272,11 @@ void create_socket(int family, int type, char *server, char *port)
 
     for (r = records; r; r = r->ai_next) {
         the_socket = socket(r->ai_family, r->ai_socktype, r->ai_protocol);
-        if (the_socket != -1
-            && connect(the_socket, r->ai_addr, r->ai_addrlen) == 0) {
-            break;
+        if (the_socket != -1) {
+            if (connect(the_socket, r->ai_addr, r->ai_addrlen) == 0) {
+                break;
+            }
+            close(the_socket);
         }
     }
 

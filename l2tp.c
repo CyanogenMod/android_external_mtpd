@@ -23,8 +23,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <arpa/inet.h>
 #include <linux/if_pppolac.h>
 #include <openssl/md5.h>
@@ -114,7 +116,7 @@ static uint8_t challenge[CHALLENGE_SIZE];
 static struct packet {
     int message;
     int length;
-    uint8_t buffer[MAX_PACKET_LENGTH] __attribute__((aligned));
+    uint8_t buffer[MAX_PACKET_LENGTH] __attribute__((aligned(4)));
 } incoming, outgoing;
 
 struct attribute {
@@ -329,12 +331,12 @@ static int l2tp_connect(int argc, char **argv)
     add_attribute_u16(WINDOW_SIZE, htons(1));
 
     if (argc >= 3) {
-        FILE *fp = fopen(RANDOM_DEVICE, "r");
-        if (!fp || fread(challenge, 1, CHALLENGE_SIZE, fp) != CHALLENGE_SIZE) {
+        int fd = open(RANDOM_DEVICE, O_RDONLY);
+        if (fd == -1 || read(fd, challenge, CHALLENGE_SIZE) != CHALLENGE_SIZE) {
             log_print(FATAL, "Cannot read %s", RANDOM_DEVICE);
             exit(SYSTEM_ERROR);
         }
-        fclose(fp);
+        close(fd);
 
         add_attribute_raw(CHALLENGE, challenge, CHALLENGE_SIZE);
         secret = argv[2];

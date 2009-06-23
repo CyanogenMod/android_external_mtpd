@@ -171,6 +171,8 @@ int main(int argc, char **argv)
         log_print(FATAL, "Pipe() %s", strerror(errno));
         exit(SYSTEM_ERROR);
     }
+    fcntl(signals[0], F_SETFD, FD_CLOEXEC);
+    fcntl(signals[1], F_SETFD, FD_CLOEXEC);
 
     timeout = initialize(argc, argv);
 

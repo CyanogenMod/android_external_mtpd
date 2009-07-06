@@ -32,6 +32,7 @@
 #ifdef ANDROID_CHANGES
 #include <android/log.h>
 #include <cutils/sockets.h>
+#include "keystore_get.h"
 #endif
 
 #include "mtpd.h"
@@ -145,6 +146,18 @@ static int get_control_and_arguments(int *argc, char ***argv)
         }
     }
     log_print(DEBUG, "Received %d arguments", i - 1);
+
+    /* L2TP secret is the only thing stored in keystore. We do the query here
+     * so other files are clean and free from android specific code. */
+    if (i > 4 && !strcmp("l2tp", args[1]) && args[4][0]) {
+        char *value = keystore_get(args[4], NULL);
+        if (!value) {
+            log_print(FATAL, "Cannot get L2TP secret from keystore");
+            exit(SYSTEM_ERROR);
+        }
+        free(args[4]);
+        args[4] = value;
+    }
 
     *argc = i;
     *argv = args;

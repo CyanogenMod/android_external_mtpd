@@ -172,9 +172,8 @@ int main(int argc, char **argv)
     int timeout;
     int status;
 #ifdef ANDROID_CHANGES
-    unsigned char code;
     int control = get_control_and_arguments(&argc, &argv);
-    code = argc - 1;
+    unsigned char code = argc - 1;
     send(control, &code, 1, 0);
 #endif
 
@@ -292,6 +291,7 @@ void create_socket(int family, int type, char *server, char *port)
                 break;
             }
             close(the_socket);
+            the_socket = -1;
         }
     }
 

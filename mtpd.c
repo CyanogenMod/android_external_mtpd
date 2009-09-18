@@ -150,13 +150,16 @@ static int get_control_and_arguments(int *argc, char ***argv)
     /* L2TP secret is the only thing stored in keystore. We do the query here
      * so other files are clean and free from android specific code. */
     if (i > 4 && !strcmp("l2tp", args[1]) && args[4][0]) {
-        char *value = keystore_get(args[4], NULL);
-        if (!value) {
+        char value[KEYSTORE_MESSAGE_SIZE];
+        int length = keystore_get(args[4], value);
+        if (length == -1) {
             log_print(FATAL, "Cannot get L2TP secret from keystore");
             exit(SYSTEM_ERROR);
         }
         free(args[4]);
-        args[4] = value;
+        args[4] = malloc(length + 1);
+        memcpy(args[4], value, length);
+        args[4][length] = 0;
     }
 
     *argc = i;

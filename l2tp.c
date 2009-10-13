@@ -263,13 +263,13 @@ static int get_attribute_raw(uint16_t type, void *value, int size)
             return size;
         }
 
-        if (!secret || !vector) {
+        if (!secret || !vector || length < 2) {
             return 0;
         } else {
             uint8_t buffer[MAX_ATTRIBUTE_SIZE];
             uint8_t hash[MD5_DIGEST_LENGTH];
             MD5_CTX ctx;
-            int i = 0;
+            int i;
 
             MD5_Init(&ctx);
             MD5_Update(&ctx, &type, sizeof(uint16_t));
@@ -277,20 +277,20 @@ static int get_attribute_raw(uint16_t type, void *value, int size)
             MD5_Update(&ctx, vector, vector_length);
             MD5_Final(hash, &ctx);
 
-            while (i + MD5_DIGEST_LENGTH <= length) {
-                int j;
-                for (j = 0; j < MD5_DIGEST_LENGTH; ++j) {
-                    buffer[i + j] = p->value[i + j] ^ hash[j];
+            for (i = 0; i < length; ++i) {
+                int j = i % MD5_DIGEST_LENGTH;
+                if (i && !j) {
+                    MD5_Init(&ctx);
+                    MD5_Update(&ctx, secret, secret_length);
+                    MD5_Update(&ctx, &p->value[i - MD5_DIGEST_LENGTH],
+                        MD5_DIGEST_LENGTH);
+                    MD5_Final(hash, &ctx);
                 }
-                MD5_Init(&ctx);
-                MD5_Update(&ctx, secret, secret_length);
-                MD5_Update(&ctx, &buffer[i], MD5_DIGEST_LENGTH);
-                MD5_Final(hash, &ctx);
-                i += MD5_DIGEST_LENGTH;
+                buffer[i] = p->value[i] ^ hash[j];
             }
 
             length = buffer[0] << 8 | buffer[1];
-            if (i == 0 || length > i - 2) {
+            if (length > i - 2) {
                 return 0;
             }
             if (size > length) {

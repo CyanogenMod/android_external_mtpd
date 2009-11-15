@@ -33,8 +33,6 @@
 
 #include "mtpd.h"
 
-/* TODO: Support secrets. */
-
 /* To avoid unnecessary endianness conversions, tunnels, sessions, attributes,
  * and values are all accessed in network order. */
 

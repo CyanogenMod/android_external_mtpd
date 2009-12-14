@@ -337,6 +337,24 @@ void start_pppd(int pppox)
         memcpy(&args[4], pppd_argv, sizeof(char *) * pppd_argc);
         args[4 + pppd_argc] = NULL;
 
+#ifdef ANDROID_CHANGES
+        {
+            char envargs[65536];
+            char *tail = envargs;
+            int i;
+            /* Hex encode the arguments using [A-P] instead of [0-9A-F]. */
+            for (i = 0; args[i]; ++i) {
+                char *p = args[i];
+                do {
+                    *tail++ = 'A' + ((*p >> 4) & 0x0F);
+                    *tail++ = 'A' + (*p & 0x0F);
+                } while (*p++);
+            }
+            *tail = 0;
+            setenv("envargs", envargs, 1);
+            args[1] = NULL;
+        }
+#endif
         execvp("pppd", args);
         log_print(FATAL, "Exec() %s", strerror(errno));
         exit(1); /* Pretending a fatal error in pppd. */

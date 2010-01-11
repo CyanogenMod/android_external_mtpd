@@ -19,7 +19,7 @@ ifneq ($(TARGET_SIMULATOR),true)
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
-LOCAL_SRC_FILES := mtpd.c l2tp.c pptp.c
+LOCAL_SRC_FILES := mtpd.c l2tp.c pptp.c openvpn.c
 LOCAL_SHARED_LIBRARIES := libcutils libcrypto
 LOCAL_CFLAGS := -DANDROID_CHANGES
 LOCAL_C_INCLUDES := external/openssl/include frameworks/base/cmds/keystore

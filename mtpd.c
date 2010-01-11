@@ -32,6 +32,7 @@
 #ifdef ANDROID_CHANGES
 #include <android/log.h>
 #include <cutils/sockets.h>
+#include <private/android_filesystem_config.h>
 #include "keystore_get.h"
 #endif
 
@@ -41,7 +42,8 @@ int the_socket = -1;
 
 extern struct protocol l2tp;
 extern struct protocol pptp;
-static struct protocol *protocols[] = {&l2tp, &pptp, NULL};
+extern struct protocol openvpn;
+static struct protocol *protocols[] = {&l2tp, &pptp, &openvpn, NULL};
 static struct protocol *the_protocol;
 
 static int pppd_argc;
@@ -171,6 +173,7 @@ int main(int argc, char **argv)
     struct pollfd pollfds[2];
     int timeout;
     int status;
+    int fds = 1;
 #ifdef ANDROID_CHANGES
     int control = get_control_and_arguments(&argc, &argv);
     unsigned char code = argc - 1;
@@ -197,19 +200,23 @@ int main(int argc, char **argv)
 
     pollfds[0].fd = signals[0];
     pollfds[0].events = POLLIN;
-    pollfds[1].fd = the_socket;
-    pollfds[1].events = POLLIN;
+    if (the_socket != -1) {
+	pollfds[1].fd = the_socket;
+	pollfds[1].events = POLLIN;
+	fds++;
+    }
 
     while (timeout >= 0) {
-        if (poll(pollfds, 2, timeout ? timeout : -1) == -1 && errno != EINTR) {
+        if (poll(pollfds, fds, timeout ? timeout : -1) == -1 && errno != EINTR) {
             log_print(FATAL, "Poll() %s", strerror(errno));
             exit(SYSTEM_ERROR);
         }
         if (pollfds[0].revents) {
             break;
         }
-        timeout = pollfds[1].revents ?
-            the_protocol->process() : the_protocol->timeout();
+	if (fds > 1)
+	    timeout = pollfds[1].revents ?
+		the_protocol->process() : the_protocol->timeout();
     }
 
     if (timeout < 0) {
@@ -306,15 +313,16 @@ void create_socket(int family, int type, char *server, char *port)
     log_print(INFO, "Connection established (socket = %d)", the_socket);
 }
 
-void start_pppd(int pppox)
+void start_daemon(char *name, char *args[], int pppox)
 {
+  int i;
     if (pppd_pid) {
-        log_print(WARNING, "Pppd is already started (pid = %d)", pppd_pid);
+        log_print(WARNING, "%s is already started (pid = %d)", name, pppd_pid);
         close(pppox);
         return;
     }
 
-    log_print(INFO, "Starting pppd (pppox = %d)", pppox);
+    log_print(INFO, "Starting %s (pppox = %d)", name, pppox);
 
     pppd_pid = fork();
     if (pppd_pid < 0) {
@@ -323,22 +331,36 @@ void start_pppd(int pppox)
     }
 
     if (!pppd_pid) {
-        char *args[pppd_argc + 5];
-        char number[12];
-
-        sprintf(number, "%d", pppox);
-        args[0] = "pppd";
-        args[1] = "nodetach";
-        args[2] = "pppox";
-        args[3] = number;
-        memcpy(&args[4], pppd_argv, sizeof(char *) * pppd_argc);
-        args[4 + pppd_argc] = NULL;
-
-        execvp("pppd", args);
+	int fd = open("/dev/null",O_RDWR|O_CREAT|O_TRUNC);
+	dup2(fd, 0);
+	dup2(fd, 1);
+	dup2(fd, 2);
+      
+        execvp(name, args);
         log_print(FATAL, "Exec() %s", strerror(errno));
         exit(1); /* Pretending a fatal error in pppd. */
     }
 
-    log_print(INFO, "Pppd started (pid = %d)", pppd_pid);
+    log_print(INFO, "%s started (pid = %d)", name, pppd_pid);
     close(pppox);
+}
+
+void start_pppd(int pppox)
+{
+    char *args[pppd_argc + 5];
+    char number[12];
+
+#ifdef ANDROID_CHANGES
+    //drop privs to vpn
+    setuid(AID_VPN);
+#endif
+
+    sprintf(number, "%d", pppox);
+    args[0] = "pppd";
+    args[1] = "nodetach";
+    args[2] = "pppox";
+    args[3] = number;
+    memcpy(&args[4], pppd_argv, sizeof(char *) * pppd_argc);
+    args[4 + pppd_argc] = NULL;
+    start_daemon("pppd", args, pppox);
 }

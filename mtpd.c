@@ -338,6 +338,44 @@ void start_daemon(char *name, char *args[], int pppox)
 	dup2(fd, 0);
 	dup2(fd, 1);
 	dup2(fd, 2);
+      
+        execvp(name, args);
+        log_print(FATAL, "Exec() %s", strerror(errno));
+        exit(1); /* Pretending a fatal error in pppd. */
+    }
+
+    log_print(INFO, "%s started (pid = %d)", name, pppd_pid);
+    close(pppox);
+}
+
+void start_pppd(int pppox)
+{
+    if (pppd_pid) {
+        log_print(WARNING, "Pppd is already started (pid = %d)", pppd_pid);
+        close(pppox);
+        return;
+    }
+
+    log_print(INFO, "Starting pppd (pppox = %d)", pppox);
+
+    pppd_pid = fork();
+    if (pppd_pid < 0) {
+        log_print(FATAL, "Fork() %s", strerror(errno));
+        exit(SYSTEM_ERROR);
+    }
+
+    if (!pppd_pid) {
+        char *args[pppd_argc + 5];
+        char number[12];
+
+        sprintf(number, "%d", pppox);
+        args[0] = "pppd";
+        args[1] = "nodetach";
+        args[2] = "pppox";
+        args[3] = number;
+        memcpy(&args[4], pppd_argv, sizeof(char *) * pppd_argc);
+        args[4 + pppd_argc] = NULL;
+
 #ifdef ANDROID_CHANGES
         {
             char envargs[65536];
@@ -356,32 +394,11 @@ void start_daemon(char *name, char *args[], int pppox)
             args[1] = NULL;
         }
 #endif
-      
-        execvp(name, args);
+        execvp("pppd", args);
         log_print(FATAL, "Exec() %s", strerror(errno));
         exit(1); /* Pretending a fatal error in pppd. */
     }
 
-    log_print(INFO, "%s started (pid = %d)", name, pppd_pid);
+    log_print(INFO, "Pppd started (pid = %d)", pppd_pid);
     close(pppox);
-}
-
-void start_pppd(int pppox)
-{
-    char *args[pppd_argc + 5];
-    char number[12];
-
-#ifdef ANDROID_CHANGES
-    //drop privs to vpn
-    setuid(AID_VPN);
-#endif
-
-    sprintf(number, "%d", pppox);
-    args[0] = "pppd";
-    args[1] = "nodetach";
-    args[2] = "pppox";
-    args[3] = number;
-    memcpy(&args[4], pppd_argv, sizeof(char *) * pppd_argc);
-    args[4 + pppd_argc] = NULL;
-    start_daemon("pppd", args, pppox);
 }

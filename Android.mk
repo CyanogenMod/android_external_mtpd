@@ -24,6 +24,10 @@ LOCAL_SHARED_LIBRARIES := libcutils libcrypto
 LOCAL_CFLAGS := -DANDROID_CHANGES
 LOCAL_C_INCLUDES := external/openssl/include frameworks/base/cmds/keystore
 
+ifeq ($(BOARD_KERNEL_NEW_PPPOX),true)
+	LOCAL_CFLAGS += -DNEW_PPPOX
+endif
+
 LOCAL_MODULE := mtpd
 
 include $(BUILD_EXECUTABLE)

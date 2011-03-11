@@ -17,6 +17,11 @@
 #ifndef __MTPD_H__
 #define __MTPD_H__
 
+#ifdef NEW_PPPOX
+#define PX_PROTO_OLAC  3
+#define PX_PROTO_OPNS  4
+#endif
+
 /* The socket to the server. */
 extern int the_socket;
 

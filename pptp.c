@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -231,27 +232,39 @@ static int pptp_connect(int argc, char **argv)
     return 0;
 }
 
-static int create_pppox()
+static int create_pppox_hack(unsigned int protocol)
 {
     int pppox;
     log_print(INFO, "Creating PPPoX socket");
-    pppox = socket(AF_PPPOX, SOCK_DGRAM, PX_PROTO_OPNS);
+    pppox = socket(AF_PPPOX, SOCK_DGRAM, protocol);
 
     if (pppox == -1) {
         log_print(FATAL, "Socket() %s", strerror(errno));
-        exit(SYSTEM_ERROR);
     } else {
         struct sockaddr_pppopns address = {
             .sa_family = AF_PPPOX,
-            .sa_protocol = PX_PROTO_OPNS,
+            .sa_protocol = protocol,
             .tcp_socket = the_socket,
             .local = local,
             .remote = remote,
         };
         if (connect(pppox, (struct sockaddr *)&address, sizeof(address)) != 0) {
             log_print(FATAL, "Connect() %s", strerror(errno));
-            exit(SYSTEM_ERROR);
+            close(pppox);
+            return -1;
         }
+    }
+    return pppox;
+}
+
+static int create_pppox() {
+    /* PX_PROTO_OPNS is bumped from 3 to 4 after 2.6.38. :( */
+    int pppox = create_pppox_hack(4);
+    if (pppox == -1) {
+        pppox = create_pppox_hack(3);
+    }
+    if (pppox == -1) {
+        exit(SYSTEM_ERROR);
     }
     return pppox;
 }

@@ -213,12 +213,9 @@ static int recv_packet()
     return 0;
 }
 
-static int pptp_connect(int argc, char **argv)
+static int pptp_connect(char **arguments)
 {
-    if (argc < 2) {
-        return -USAGE_ERROR;
-    }
-    create_socket(AF_UNSPEC, SOCK_STREAM, argv[0], argv[1]);
+    create_socket(AF_UNSPEC, SOCK_STREAM, arguments[0], arguments[1]);
 
     log_print(DEBUG, "Sending SCCRQ");
     state = SCCRQ;
@@ -413,6 +410,7 @@ static void pptp_shutdown()
 
 struct protocol pptp = {
     .name = "pptp",
+    .arguments = 2,
     .usage = "<server> <port>",
     .connect = pptp_connect,
     .process = pptp_process,

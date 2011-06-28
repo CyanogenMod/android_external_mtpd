@@ -185,7 +185,10 @@ static int recv_packet(uint16_t *session)
     uint16_t *p = (uint16_t *)incoming.buffer;
 
     incoming.length = recv(the_socket, incoming.buffer, MAX_PACKET_LENGTH, 0);
-    if (incoming.length == -1 && errno != EINTR) {
+    if (incoming.length == -1) {
+        if (errno == EINTR) {
+            return 0;
+        }
         log_print(FATAL, "Recv() %s", strerror(errno));
         exit(NETWORK_ERROR);
     }
@@ -309,12 +312,9 @@ static int get_attribute_u16(uint16_t type, uint16_t *value)
     return get_attribute_raw(type, value, sizeof(uint16_t)) == sizeof(uint16_t);
 }
 
-static int l2tp_connect(int argc, char **argv)
+static int l2tp_connect(char **arguments)
 {
-    if (argc < 2) {
-        return -USAGE_ERROR;
-    }
-    create_socket(AF_INET, SOCK_DGRAM, argv[0], argv[1]);
+    create_socket(AF_INET, SOCK_DGRAM, arguments[0], arguments[1]);
 
     while (!local_tunnel) {
         local_tunnel = random();
@@ -329,7 +329,7 @@ static int l2tp_connect(int argc, char **argv)
     add_attribute_u16(ASSIGNED_TUNNEL, local_tunnel);
     add_attribute_u16(WINDOW_SIZE, htons(1));
 
-    if (argc >= 3) {
+    if (arguments[2][0]) {
         int fd = open(RANDOM_DEVICE, O_RDONLY);
         if (fd == -1 || read(fd, challenge, CHALLENGE_SIZE) != CHALLENGE_SIZE) {
             log_print(FATAL, "Cannot read %s", RANDOM_DEVICE);
@@ -338,8 +338,8 @@ static int l2tp_connect(int argc, char **argv)
         close(fd);
 
         add_attribute_raw(CHALLENGE, challenge, CHALLENGE_SIZE);
-        secret = argv[2];
-        secret_length = strlen(argv[2]);
+        secret = arguments[2];
+        secret_length = strlen(arguments[2]);
     }
 
     send_packet();
@@ -574,7 +574,8 @@ static void l2tp_shutdown()
 
 struct protocol l2tp = {
     .name = "l2tp",
-    .usage = "<server> <port> [secret]",
+    .arguments = 3,
+    .usage = "<server> <port> <secret>",
     .connect = l2tp_connect,
     .process = l2tp_process,
     .timeout = l2tp_timeout,

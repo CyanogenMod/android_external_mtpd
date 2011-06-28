@@ -58,38 +58,29 @@ static void interrupt(int signal)
 
 static int initialize(int argc, char **argv)
 {
-    int timeout = 0;
     int i;
 
-    for (i = 2; i < argc; ++i) {
-        if (!argv[i][0]) {
-            pppd_argc = argc - i - 1;
-            pppd_argv = &argv[i + 1];
-            argc = i;
+    for (i = 0; protocols[i]; ++i) {
+        struct protocol *p = protocols[i];
+        if (argc - 2 >= p->arguments && !strcmp(argv[1], p->name)) {
+            log_print(INFO, "Using protocol %s", p->name);
+            the_protocol = p;
             break;
         }
     }
 
-    if (argc >= 2) {
+    if (!the_protocol) {
+        printf("Usages:\n");
         for (i = 0; protocols[i]; ++i) {
-            if (!strcmp(argv[1], protocols[i]->name)) {
-                log_print(INFO, "Using protocol %s", protocols[i]->name);
-                the_protocol = protocols[i];
-                timeout = the_protocol->connect(argc - 2, &argv[2]);
-                break;
-            }
+            struct protocol *p = protocols[i];
+            printf("  %s %s %s pppd-arguments\n", argv[0], p->name, p->usage);
         }
+        exit(0);
     }
 
-    if (!the_protocol || timeout == -USAGE_ERROR) {
-        printf("Usage: %s <protocol-args> '' <pppd-args>, "
-               "where protocol-args are one of:\n", argv[0]);
-        for (i = 0; protocols[i]; ++i) {
-            printf("       %s %s\n", protocols[i]->name, protocols[i]->usage);
-        }
-        exit(USAGE_ERROR);
-    }
-    return timeout;
+    pppd_argc = argc - 2 - the_protocol->arguments;
+    pppd_argv = &argv[2 + the_protocol->arguments];
+    return the_protocol->connect(&argv[2]);
 }
 
 static void stop_pppd()
@@ -106,7 +97,7 @@ static void stop_pppd()
 
 static int get_control_and_arguments(int *argc, char ***argv)
 {
-    static char *args[256];
+    static char *args[32];
     int control;
     int i;
 
@@ -122,7 +113,7 @@ static int get_control_and_arguments(int *argc, char ***argv)
     fcntl(control, F_SETFD, FD_CLOEXEC);
 
     args[0] = (*argv)[0];
-    for (i = 1; i < 256; ++i) {
+    for (i = 1; i < 32; ++i) {
         unsigned char length;
         if (recv(control, &length, 1, 0) != 1) {
             log_print(FATAL, "Cannot get argument length");

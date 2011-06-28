@@ -32,7 +32,6 @@
 #ifdef ANDROID_CHANGES
 #include <android/log.h>
 #include <cutils/sockets.h>
-#include "keystore_get.h"
 #endif
 
 #include "mtpd.h"
@@ -114,15 +113,18 @@ static int get_control_and_arguments(int *argc, char ***argv)
 
     args[0] = (*argv)[0];
     for (i = 1; i < 32; ++i) {
-        unsigned char length;
-        if (recv(control, &length, 1, 0) != 1) {
+        unsigned char bytes[2];
+        if (recv(control, &bytes[0], 1, 0) != 1
+            || recv(control, &bytes[1], 1, 0) != 1) {
             log_print(FATAL, "Cannot get argument length");
             exit(SYSTEM_ERROR);
-        }
-        if (length == 0xFF) {
-            break;
         } else {
+            int length = bytes[0] << 8 | bytes[1];
             int offset = 0;
+
+            if (length == 0xFFFF) {
+                break;
+            }
             args[i] = malloc(length + 1);
             while (offset < length) {
                 int n = recv(control, &args[i][offset], length - offset, 0);
@@ -137,21 +139,6 @@ static int get_control_and_arguments(int *argc, char ***argv)
         }
     }
     log_print(DEBUG, "Received %d arguments", i - 1);
-
-    /* L2TP secret is the only thing stored in keystore. We do the query here
-     * so other files are clean and free from android specific code. */
-    if (i > 4 && !strcmp("l2tp", args[1]) && args[4][0]) {
-        char value[KEYSTORE_MESSAGE_SIZE];
-        int length = keystore_get(args[4], strlen(args[4]), value);
-        if (length == -1) {
-            log_print(FATAL, "Cannot get L2TP secret from keystore");
-            exit(SYSTEM_ERROR);
-        }
-        free(args[4]);
-        args[4] = malloc(length + 1);
-        memcpy(args[4], value, length);
-        args[4][length] = 0;
-    }
 
     *argc = i;
     *argv = args;

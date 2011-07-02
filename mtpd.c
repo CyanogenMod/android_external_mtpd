@@ -94,7 +94,7 @@ static void stop_pppd()
 
 #ifdef ANDROID_CHANGES
 
-static int get_control_and_arguments(int *argc, char ***argv)
+static void get_control_and_arguments(int *argc, char ***argv)
 {
     static char *args[32];
     int control;
@@ -109,7 +109,6 @@ static int get_control_and_arguments(int *argc, char ***argv)
         exit(SYSTEM_ERROR);
     }
     close(i);
-    fcntl(control, F_SETFD, FD_CLOEXEC);
 
     args[0] = (*argv)[0];
     for (i = 1; i < 32; ++i) {
@@ -142,7 +141,7 @@ static int get_control_and_arguments(int *argc, char ***argv)
 
     *argc = i;
     *argv = args;
-    return control;
+    close(control);
 }
 
 #endif
@@ -153,9 +152,7 @@ int main(int argc, char **argv)
     int timeout;
     int status;
 #ifdef ANDROID_CHANGES
-    int control = get_control_and_arguments(&argc, &argv);
-    unsigned char code = argc - 1;
-    send(control, &code, 1, 0);
+    get_control_and_arguments(&argc, &argv);
 #endif
 
     srandom(time(NULL));
@@ -212,11 +209,6 @@ int main(int argc, char **argv)
 
     stop_pppd();
     the_protocol->shutdown();
-
-#ifdef ANDROID_CHANGES
-    code = status;
-    send(control, &code, 1, 0);
-#endif
     log_print(INFO, "Mtpd is terminated (status = %d)", status);
     return status;
 }

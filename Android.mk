@@ -14,8 +14,6 @@
 # limitations under the License.
 #
 
-ifneq ($(TARGET_SIMULATOR),true)
-
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
@@ -27,5 +25,3 @@ LOCAL_C_INCLUDES := external/openssl/include
 LOCAL_MODULE := mtpd
 
 include $(BUILD_EXECUTABLE)
-
-endif

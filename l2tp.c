@@ -195,8 +195,8 @@ static int recv_packet(uint16_t *session)
 
     /* We only handle packets in our tunnel. */
     if ((incoming.length != ACK_SIZE && incoming.length < MESSAGE_HEADER_SIZE)
-        || (p[0] & htons(MESSAGE_MASK)) != htons(MESSAGE_FLAG)
-        || p[1] > htons(incoming.length) || p[2] != local_tunnel) {
+            || (p[0] & htons(MESSAGE_MASK)) != htons(MESSAGE_FLAG) ||
+            ntohs(p[1]) != incoming.length || p[2] != local_tunnel) {
         return 0;
     }
 
@@ -362,7 +362,7 @@ static int create_pppox_hack(unsigned int protocol)
             .local = {.tunnel = local_tunnel, .session = local_session},
             .remote = {.tunnel = remote_tunnel, .session = remote_session},
         };
-        if (connect(pppox, (struct sockaddr *)&address, sizeof(address)) != 0) {
+        if (connect(pppox, (struct sockaddr *)&address, sizeof(address))) {
             log_print(FATAL, "Connect() %s", strerror(errno));
             close(pppox);
             return -1;
@@ -400,11 +400,11 @@ static int verify_challenge()
     if (secret) {
         uint8_t response[MD5_DIGEST_LENGTH];
         if (get_attribute_raw(CHALLENGE_RESPONSE, response, MD5_DIGEST_LENGTH)
-            != MD5_DIGEST_LENGTH) {
+                != MD5_DIGEST_LENGTH) {
             return 0;
         }
         return !memcmp(compute_response(SCCRP, challenge, CHALLENGE_SIZE),
-                       response, MD5_DIGEST_LENGTH);
+                response, MD5_DIGEST_LENGTH);
     }
     return 1;
 }
@@ -436,18 +436,18 @@ static int l2tp_process()
     switch(incoming.message) {
         case SCCRP:
             if (state == SCCRQ) {
-                if (get_attribute_u16(ASSIGNED_TUNNEL, &tunnel) && tunnel
-                    && verify_challenge()) {
+                if (get_attribute_u16(ASSIGNED_TUNNEL, &tunnel) && tunnel &&
+                        verify_challenge()) {
                     remote_tunnel = tunnel;
                     log_print(DEBUG, "Received SCCRP (remote_tunnel = %d) -> "
-                              "Sending SCCCN", remote_tunnel);
+                            "Sending SCCCN", remote_tunnel);
                     state = SCCCN;
                     answer_challenge();
                     set_message(0, SCCCN);
                     break;
                 }
                 log_print(DEBUG, "Received SCCRP without %s", tunnel ?
-                          "valid challenge response" : "assigned tunnel");
+                        "valid challenge response" : "assigned tunnel");
                 log_print(ERROR, "Protocol error");
                 return tunnel ? -CHALLENGE_FAILED : -PROTOCOL_ERROR;
             }
@@ -458,7 +458,7 @@ static int l2tp_process()
                 if (get_attribute_u16(ASSIGNED_SESSION, &session) && session) {
                     remote_session = session;
                     log_print(DEBUG, "Received ICRP (remote_session = %d) -> "
-                              "Sending ICCN", remote_session);
+                            "Sending ICCN", remote_session);
                     state = ICCN;
                     set_message(remote_session, ICCN);
                     add_attribute_u32(CONNECT_SPEED, htonl(100000000));
@@ -480,7 +480,7 @@ static int l2tp_process()
         case CDN:
             if (session && session == local_session) {
                 log_print(DEBUG, "Received CDN (local_session = %d)",
-                          local_session);
+                        local_session);
                 log_print(INFO, "Remote server hung up");
                 return -REMOTE_REQUESTED;
             }
@@ -490,13 +490,13 @@ static int l2tp_process()
         case HELLO:
         case WEN:
         case SLI:
-            /* These are harmless, so we just treat them the same way. */
+            /* These are harmless, so we just treat them in the same way. */
             if (state == SCCCN) {
                 while (!local_session) {
                     local_session = random();
                 }
                 log_print(DEBUG, "Received %s -> Sending ICRQ (local_session = "
-                          "%d)", messages[incoming.message], local_session);
+                        "%d)", messages[incoming.message], local_session);
                 log_print(INFO, "Tunnel established");
                 state = ICRQ;
                 set_message(0, ICRQ);
@@ -526,7 +526,7 @@ static int l2tp_process()
              * accept ICRQ or OCRQ. Always send CDN with a proper error. */
             if (get_attribute_u16(ASSIGNED_SESSION, &session) && session) {
                 log_print(DEBUG, "Received %s (remote_session = %d) -> "
-                          "Sending CDN", messages[incoming.message], session);
+                        "Sending CDN", messages[incoming.message], session);
                 set_message(session, CDN);
                 add_attribute_u32(RESULT_CODE, htonl(0x00020006));
                 add_attribute_u16(ASSIGNED_SESSION, 0);

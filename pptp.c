@@ -208,7 +208,7 @@ static int recv_packet()
             return 1;
         }
         log_print(DEBUG, "Ignored non-control message (type = %d)",
-                  ntohs(incoming.header.type));
+                ntohs(incoming.header.type));
     }
     return 0;
 }
@@ -245,7 +245,7 @@ static int create_pppox_hack(unsigned int protocol)
             .local = local,
             .remote = remote,
         };
-        if (connect(pppox, (struct sockaddr *)&address, sizeof(address)) != 0) {
+        if (connect(pppox, (struct sockaddr *)&address, sizeof(address))) {
             log_print(FATAL, "Connect() %s", strerror(errno));
             close(pppox);
             return -1;
@@ -284,20 +284,20 @@ static int pptp_process()
     }
     if (incoming.length < lengths[incoming.message]) {
         log_print(DEBUG, "Received %s with invalid length (length = %d)",
-                  messages[incoming.message], incoming.length);
+                messages[incoming.message], incoming.length);
         return 0;
     }
 
     switch(incoming.message) {
         case SCCRP:
             if (state == SCCRQ) {
-                if (incoming.sccrp.protocol_version == PROTOCOL_VERSION
-                    && ESTABLISHED(incoming.sccrp.result)) {
+                if (incoming.sccrp.protocol_version == PROTOCOL_VERSION &&
+                        ESTABLISHED(incoming.sccrp.result)) {
                     while (!local) {
                         local = random();
                     }
                     log_print(DEBUG, "Received SCCRP -> Sending OCRQ "
-                              "(local = %d)", local);
+                            "(local = %d)", local);
                     log_print(INFO, "Tunnel established");
                     state = OCRQ;
                     set_message(OCRQ);
@@ -312,7 +312,7 @@ static int pptp_process()
                     return 0;
                 }
                 log_print(DEBUG, "Received SCCRP (result = %d)",
-                          incoming.sccrq.result);
+                        incoming.sccrq.result);
                 log_print(INFO, "Remote server hung up");
                 return -REMOTE_REQUESTED;
             }
@@ -329,7 +329,7 @@ static int pptp_process()
                     return 0;
                 }
                 log_print(DEBUG, "Received OCRP (result = %d)",
-                          incoming.ocrp.result);
+                        incoming.ocrp.result);
                 log_print(INFO, "Remote server hung up");
                 return -REMOTE_REQUESTED;
             }
@@ -375,7 +375,7 @@ static int pptp_process()
 
         case ICRQ:
             log_print(DEBUG, "Received ICRQ (remote = %d) -> Sending ICRP "
-                      "with error", incoming.icrq.call);
+                    "with error", incoming.icrq.call);
             set_message(ICRP);
             outgoing.icrp.peer = incoming.icrq.call;
             outgoing.icrp.result = RESULT_ERROR;
@@ -384,7 +384,7 @@ static int pptp_process()
 
         case OCRQ:
             log_print(DEBUG, "Received OCRQ (remote = %d) -> Sending OCRP "
-                      "with error", incoming.ocrq.call);
+                    "with error", incoming.ocrq.call);
             set_message(OCRP);
             outgoing.ocrp.peer = incoming.ocrq.call;
             outgoing.ocrp.result = RESULT_ERROR;

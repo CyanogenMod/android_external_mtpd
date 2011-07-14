@@ -43,6 +43,7 @@ extern struct protocol pptp;
 static struct protocol *protocols[] = {&l2tp, &pptp, NULL};
 static struct protocol *the_protocol;
 
+static char *interface;
 static int pppd_argc;
 static char **pppd_argv;
 static pid_t pppd_pid;
@@ -61,7 +62,7 @@ static int initialize(int argc, char **argv)
 
     for (i = 0; protocols[i]; ++i) {
         struct protocol *p = protocols[i];
-        if (argc - 2 >= p->arguments && !strcmp(argv[1], p->name)) {
+        if (argc - 3 >= p->arguments && !strcmp(argv[2], p->name)) {
             log_print(INFO, "Using protocol %s", p->name);
             the_protocol = p;
             break;
@@ -72,14 +73,16 @@ static int initialize(int argc, char **argv)
         printf("Usages:\n");
         for (i = 0; protocols[i]; ++i) {
             struct protocol *p = protocols[i];
-            printf("  %s %s %s pppd-arguments\n", argv[0], p->name, p->usage);
+            printf("  %s interface %s %s pppd-arguments\n",
+                    argv[0], p->name, p->usage);
         }
         exit(0);
     }
 
-    pppd_argc = argc - 2 - the_protocol->arguments;
-    pppd_argv = &argv[2 + the_protocol->arguments];
-    return the_protocol->connect(&argv[2]);
+    interface = argv[1];
+    pppd_argc = argc - 3 - the_protocol->arguments;
+    pppd_argv = &argv[3 + the_protocol->arguments];
+    return the_protocol->connect(&argv[3]);
 }
 
 static void stop_pppd()
@@ -94,14 +97,14 @@ static void stop_pppd()
 
 #ifdef ANDROID_CHANGES
 
-static void get_control_and_arguments(int *argc, char ***argv)
+static void android_get_arguments(int *argc, char ***argv)
 {
     static char *args[32];
     int control;
     int i;
 
     if ((i = android_get_control_socket("mtpd")) == -1) {
-        return -1;
+        return;
     }
     log_print(DEBUG, "Waiting for control socket");
     if (listen(i, 1) == -1 || (control = accept(i, NULL, 0)) == -1) {
@@ -152,7 +155,7 @@ int main(int argc, char **argv)
     int timeout;
     int status;
 #ifdef ANDROID_CHANGES
-    get_control_and_arguments(&argc, &argv);
+    android_get_arguments(&argc, &argv);
 #endif
 
     srandom(time(NULL));
@@ -248,7 +251,7 @@ void create_socket(int family, int type, char *server, char *port)
     struct addrinfo *r;
     int error;
 
-    log_print(INFO, "Connecting to %s port %s", server, port);
+    log_print(INFO, "Connecting to %s port %s via %s", server, port, interface);
 
     error = getaddrinfo(server, port, &hints, &records);
     if (error) {
@@ -258,14 +261,13 @@ void create_socket(int family, int type, char *server, char *port)
     }
 
     for (r = records; r; r = r->ai_next) {
-        the_socket = socket(r->ai_family, r->ai_socktype, r->ai_protocol);
-        if (the_socket != -1) {
-            if (connect(the_socket, r->ai_addr, r->ai_addrlen) == 0) {
-                break;
-            }
-            close(the_socket);
-            the_socket = -1;
+        int s = socket(r->ai_family, r->ai_socktype, r->ai_protocol);
+        if (!setsockopt(s, SOL_SOCKET, SO_BINDTODEVICE, interface,
+                strlen(interface)) && !connect(s, r->ai_addr, r->ai_addrlen)) {
+            the_socket = s;
+            break;
         }
+        close(s);
     }
 
     freeaddrinfo(records);

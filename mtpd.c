@@ -116,17 +116,17 @@ static void android_get_arguments(int *argc, char ***argv)
     args[0] = (*argv)[0];
     for (i = 1; i < 32; ++i) {
         unsigned char bytes[2];
-        if (recv(control, &bytes[0], 1, 0) != 1
-            || recv(control, &bytes[1], 1, 0) != 1) {
+        int length = recv(control, &bytes[0], 1, 0);
+
+        if (!length) {
+            break;
+        } else if (length != 1 || recv(control, &bytes[1], 1, 0) != 1) {
             log_print(FATAL, "Cannot get argument length");
             exit(SYSTEM_ERROR);
         } else {
-            int length = bytes[0] << 8 | bytes[1];
             int offset = 0;
+            length = bytes[0] << 8 | bytes[1];
 
-            if (length == 0xFFFF) {
-                break;
-            }
             args[i] = malloc(length + 1);
             while (offset < length) {
                 int n = recv(control, &args[i][offset], length - offset, 0);
@@ -190,7 +190,7 @@ int main(int argc, char **argv)
             break;
         }
         timeout = pollfds[1].revents ?
-            the_protocol->process() : the_protocol->timeout();
+                the_protocol->process() : the_protocol->timeout();
     }
 
     if (timeout < 0) {
@@ -200,7 +200,7 @@ int main(int argc, char **argv)
         read(signals[0], &signal, sizeof(int));
         log_print(INFO, "Received signal %d", signal);
         if (signal == SIGCHLD && waitpid(pppd_pid, &status, WNOHANG) == pppd_pid
-            && WIFEXITED(status)) {
+                && WIFEXITED(status)) {
             status = WEXITSTATUS(status);
             log_print(INFO, "Pppd is terminated (status = %d)", status);
             status += PPPD_EXITED;
@@ -256,7 +256,7 @@ void create_socket(int family, int type, char *server, char *port)
     error = getaddrinfo(server, port, &hints, &records);
     if (error) {
         log_print(FATAL, "Getaddrinfo() %s", (error == EAI_SYSTEM) ?
-                  strerror(errno) : gai_strerror(error));
+                strerror(errno) : gai_strerror(error));
         exit(NETWORK_ERROR);
     }
 

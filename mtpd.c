@@ -88,23 +88,24 @@ static int initialize(int argc, char **argv)
 static void stop_pppd()
 {
     if (pppd_pid) {
+        int status;
         log_print(INFO, "Sending signal to pppd (pid = %d)", pppd_pid);
         kill(pppd_pid, SIGTERM);
-        sleep(5);
+        waitpid(pppd_pid, &status, 0);
         pppd_pid = 0;
     }
 }
 
 #ifdef ANDROID_CHANGES
 
-static void android_get_arguments(int *argc, char ***argv)
+static int android_get_control_and_arguments(int *argc, char ***argv)
 {
     static char *args[32];
     int control;
     int i;
 
     if ((i = android_get_control_socket("mtpd")) == -1) {
-        return;
+        return -1;
     }
     log_print(DEBUG, "Waiting for control socket");
     if (listen(i, 1) == -1 || (control = accept(i, NULL, 0)) == -1) {
@@ -112,21 +113,22 @@ static void android_get_arguments(int *argc, char ***argv)
         exit(SYSTEM_ERROR);
     }
     close(i);
+    fcntl(control, F_SETFD, FD_CLOEXEC);
 
     args[0] = (*argv)[0];
     for (i = 1; i < 32; ++i) {
         unsigned char bytes[2];
-        int length = recv(control, &bytes[0], 1, 0);
-
-        if (!length) {
-            break;
-        } else if (length != 1 || recv(control, &bytes[1], 1, 0) != 1) {
+        if (recv(control, &bytes[0], 1, 0) != 1 ||
+                recv(control, &bytes[1], 1, 0) != 1) {
             log_print(FATAL, "Cannot get argument length");
             exit(SYSTEM_ERROR);
         } else {
+            int length = bytes[0] << 8 | bytes[1];
             int offset = 0;
-            length = bytes[0] << 8 | bytes[1];
 
+            if (length == 0xFFFF) {
+                break;
+            }
             args[i] = malloc(length + 1);
             while (offset < length) {
                 int n = recv(control, &args[i][offset], length - offset, 0);
@@ -144,18 +146,21 @@ static void android_get_arguments(int *argc, char ***argv)
 
     *argc = i;
     *argv = args;
-    close(control);
+    return control;
 }
 
 #endif
 
 int main(int argc, char **argv)
 {
-    struct pollfd pollfds[2];
+    struct pollfd pollfds[3];
+    int control = -1;
     int timeout;
     int status;
+
 #ifdef ANDROID_CHANGES
-    android_get_arguments(&argc, &argv);
+    control = android_get_control_and_arguments(&argc, &argv);
+    shutdown(control, SHUT_WR);
 #endif
 
     srandom(time(NULL));
@@ -176,21 +181,26 @@ int main(int argc, char **argv)
     signal(SIGPIPE, SIG_IGN);
     atexit(stop_pppd);
 
-    pollfds[0].fd = signals[0];
+    pollfds[0].fd = the_socket;
     pollfds[0].events = POLLIN;
-    pollfds[1].fd = the_socket;
+    pollfds[1].fd = signals[0];
     pollfds[1].events = POLLIN;
+    pollfds[2].fd = control;
+    pollfds[2].events = 0;
 
     while (timeout >= 0) {
-        if (poll(pollfds, 2, timeout ? timeout : -1) == -1 && errno != EINTR) {
+        if (poll(pollfds, 3, timeout ? timeout : -1) == -1 && errno != EINTR) {
             log_print(FATAL, "Poll() %s", strerror(errno));
             exit(SYSTEM_ERROR);
         }
-        if (pollfds[0].revents) {
+        timeout = pollfds[0].revents ?
+                the_protocol->process() : the_protocol->timeout();
+        if (pollfds[1].revents) {
             break;
         }
-        timeout = pollfds[1].revents ?
-                the_protocol->process() : the_protocol->timeout();
+        if (pollfds[2].revents) {
+            interrupt(SIGTERM);
+        }
     }
 
     if (timeout < 0) {

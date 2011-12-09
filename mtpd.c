@@ -193,14 +193,19 @@ int main(int argc, char **argv)
             log_print(FATAL, "Poll() %s", strerror(errno));
             exit(SYSTEM_ERROR);
         }
-        timeout = pollfds[0].revents ?
-                the_protocol->process() : the_protocol->timeout();
         if (pollfds[1].revents) {
             break;
         }
         if (pollfds[2].revents) {
             interrupt(SIGTERM);
         }
+#ifdef ANDROID_CHANGES
+        if (!access("/data/misc/vpn/abort", F_OK)) {
+            interrupt(SIGTERM);
+        }
+#endif
+        timeout = pollfds[0].revents ?
+                the_protocol->process() : the_protocol->timeout();
     }
 
     if (timeout < 0) {

@@ -199,13 +199,16 @@ int main(int argc, char **argv)
         if (pollfds[2].revents) {
             interrupt(SIGTERM);
         }
+        timeout = pollfds[0].revents ?
+                the_protocol->process() : the_protocol->timeout();
 #ifdef ANDROID_CHANGES
         if (!access("/data/misc/vpn/abort", F_OK)) {
             interrupt(SIGTERM);
         }
+        if (!timeout) {
+            timeout = 5000;
+        }
 #endif
-        timeout = pollfds[0].revents ?
-                the_protocol->process() : the_protocol->timeout();
     }
 
     if (timeout < 0) {

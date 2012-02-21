@@ -429,8 +429,8 @@ static int l2tp_process()
                     log_print(DEBUG, "Received SCCRP (remote_tunnel = %d) -> "
                             "Sending SCCCN", remote_tunnel);
                     state = SCCCN;
-                    answer_challenge();
                     set_message(0, SCCCN);
+                    answer_challenge();
                     break;
                 }
                 log_print(DEBUG, "Received SCCRP without %s", tunnel ?

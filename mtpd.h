@@ -17,6 +17,34 @@
 #ifndef __MTPD_H__
 #define __MTPD_H__
 
+#if !defined(PX_PROTO_OLAC)
+#define USING_UAPI
+#endif
+
+#if defined(USING_UAPI)
+/* This stuff isn't in uapi. */
+#define PX_PROTO_OLAC 3
+#define PX_PROTO_OPNS 4
+
+struct sockaddr_pppopns {
+ sa_family_t sa_family;
+ unsigned int sa_protocol;
+ int tcp_socket;
+ uint16_t local;
+ uint16_t remote;
+} __attribute__((packed));
+
+struct sockaddr_pppolac {
+ sa_family_t sa_family;
+ unsigned int sa_protocol;
+ int udp_socket;
+ struct __attribute__((packed)) {
+   uint16_t tunnel;
+   uint16_t session;
+ } local, remote;
+} __attribute__((packed));
+#endif
+
 /* The socket to the server. */
 extern int the_socket;
 

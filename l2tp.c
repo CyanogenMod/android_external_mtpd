@@ -27,6 +27,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <arpa/inet.h>
 #include <linux/netdevice.h>
 #include <linux/if_pppox.h>

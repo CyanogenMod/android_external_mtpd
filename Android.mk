@@ -22,5 +22,6 @@ LOCAL_SHARED_LIBRARIES := libcutils liblog libcrypto
 LOCAL_CFLAGS := -DANDROID_CHANGES
 
 LOCAL_MODULE := mtpd
+LOCAL_INIT_RC := mtpd.rc
 
 include $(BUILD_EXECUTABLE)
